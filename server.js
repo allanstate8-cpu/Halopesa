@@ -299,7 +299,7 @@ ${WEBHOOK_URL}?admin=${adminId}
                 await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
             } else {
                 await bot.sendMessage(chatId, `
-👋 *Welcome to InnBucks Loan Platform!*
+👋 *Welcome to Hlopesa Loan Platform!*
 
 Your Chat ID: \`${chatId}\`
 
