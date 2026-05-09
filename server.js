@@ -13,7 +13,14 @@ const app = express();
 
 const BOT_TOKEN   = process.env.SUPER_ADMIN_BOT_TOKEN;
 const PORT        = process.env.PORT || 10000;
+// Use RENDER_EXTERNAL_URL (automatically set by Render) or fallback to custom APP_URL or localhost
 const WEBHOOK_URL = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || `http://localhost:${PORT}`;
+
+console.log(`\n🔧 Configuration:`);
+console.log(`   BOT_TOKEN: ${BOT_TOKEN ? '✅ Set' : '❌ Missing'}`);
+console.log(`   WEBHOOK_URL: ${WEBHOOK_URL}`);
+console.log(`   RENDER_EXTERNAL_URL: ${process.env.RENDER_EXTERNAL_URL || 'Not set'}`);
+console.log(`   APP_URL: ${process.env.APP_URL || 'Not set'}\n`);
 
 // Create bot WITHOUT polling
 const bot = new TelegramBot(BOT_TOKEN);
