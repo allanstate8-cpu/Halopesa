@@ -2,6 +2,9 @@ const { MongoClient } = require('mongodb');
 
 let client;
 let db;
+let connectionAttempts = 0;
+const MAX_RETRY_ATTEMPTS = 5;
+const INITIAL_RETRY_DELAY = 2000; // 2 seconds
 
 // Database and collections
 const DB_NAME = 'halopesa_loan_platform';
@@ -11,32 +14,124 @@ const COLLECTIONS = {
 };
 
 /**
- * Connect to MongoDB
+ * Connect to MongoDB with retry logic
  */
 async function connectDatabase() {
+    const MONGODB_URI = process.env.MONGODB_URI;
+
+    if (!MONGODB_URI) {
+        console.error('❌ MONGODB_URI is not set in environment variables');
+        throw new Error('MONGODB_URI environment variable is required');
+    }
+
+    console.log('🔄 Connecting to MongoDB...');
+    console.log(`📍 Cluster: ${MONGODB_URI.match(/@([^/]+)/)?.[1] || 'unknown'}`);
+
+    return new Promise((resolve, reject) => {
+        attemptConnection(MONGODB_URI, 0, resolve, reject);
+    });
+}
+
+/**
+ * Attempt connection with exponential backoff retry
+ */
+async function attemptConnection(uri, attempt, resolve, reject) {
     try {
-        const MONGODB_URI = process.env.MONGODB_URI;
+        connectionAttempts = attempt + 1;
+        
+        console.log(`\n📡 Connection attempt ${connectionAttempts}/${MAX_RETRY_ATTEMPTS}`);
 
-        if (!MONGODB_URI) {
-            throw new Error('❌ MONGODB_URI is not set in environment variables');
-        }
+        // Create client with optimized timeout settings
+        client = new MongoClient(uri, {
+            // Connection timeouts
+            serverSelectionTimeoutMS: 10000,  // 10 seconds to select a server
+            connectTimeoutMS: 10000,          // 10 seconds to connect
+            socketTimeoutMS: 45000,           // 45 seconds for socket operations
+            
+            // Retry and heartbeat settings
+            retryWrites: true,
+            retryReads: true,
+            heartbeatFrequencyMS: 10000,
+            
+            // Connection pool
+            maxPoolSize: 10,
+            minPoolSize: 2,
+            
+            // Other options
+            w: 'majority',
+            journal: true
+        });
 
-        console.log('🔄 Connecting to MongoDB...');
+        // Add event listeners for debugging
+        client.on('error', (error) => {
+            console.error('❌ Client error event:', error.message);
+        });
 
-        client = new MongoClient(MONGODB_URI);
+        client.on('serverDescriptionChanged', (event) => {
+            console.log(`🔍 Server status changed: ${event.newDescription.type}`);
+        });
+
+        // Attempt to connect
         await client.connect();
-
-        db = client.db(DB_NAME);
-
         console.log('✅ Connected to MongoDB successfully');
 
-        await createIndexes();
+        // Verify connection by pinging the database
+        const adminDb = client.db('admin');
+        await adminDb.command({ ping: 1 });
+        console.log('✅ Ping successful - database is responsive');
 
-        return db;
+        // Set global db reference
+        db = client.db(DB_NAME);
+
+        // Create indexes
+        await createIndexes();
+        
+        console.log('✅ Database initialization complete\n');
+        resolve(db);
+
     } catch (error) {
-        console.error('❌ MongoDB connection error:', error);
-        throw error;
+        console.error(`❌ Connection attempt ${connectionAttempts} failed:`, error.message);
+
+        // If we still have retries, try again with exponential backoff
+        if (connectionAttempts < MAX_RETRY_ATTEMPTS) {
+            const delayMs = INITIAL_RETRY_DELAY * Math.pow(2, connectionAttempts - 1);
+            console.log(`⏳ Retrying in ${delayMs / 1000} seconds... (${MAX_RETRY_ATTEMPTS - connectionAttempts} attempts remaining)\n`);
+
+            // Close the failed client
+            try {
+                await client.close();
+            } catch (e) {
+                // Ignore close errors
+            }
+
+            // Schedule retry
+            setTimeout(() => {
+                attemptConnection(uri, connectionAttempts, resolve, reject);
+            }, delayMs);
+        } else {
+            // Max retries exceeded
+            const errorMsg = `Failed to connect to MongoDB after ${MAX_RETRY_ATTEMPTS} attempts. Error: ${error.message}`;
+            console.error(`\n❌ ${errorMsg}\n`);
+            reject(new Error(errorMsg));
+        }
     }
+}
+
+/**
+ * Check if database is connected
+ */
+function isDatabaseReady() {
+    return db !== undefined && client !== null;
+}
+
+/**
+ * Get database instance (for immediate use without waiting)
+ */
+function getDatabase() {
+    if (!isDatabaseReady()) {
+        throw new Error('Database not connected yet. Call connectDatabase() first.');
+    }
+    return db;
 }
 
 /**
@@ -44,11 +139,15 @@ async function connectDatabase() {
  */
 async function createIndexes() {
     try {
+        console.log('📑 Creating database indexes...');
+        
+        // Admin indexes
         await db.collection(COLLECTIONS.ADMINS).createIndex({ adminId: 1 }, { unique: true });
         await db.collection(COLLECTIONS.ADMINS).createIndex({ email: 1 });
         await db.collection(COLLECTIONS.ADMINS).createIndex({ chatId: 1 });
         await db.collection(COLLECTIONS.ADMINS).createIndex({ status: 1 });
 
+        // Application indexes
         await db.collection(COLLECTIONS.APPLICATIONS).createIndex({ id: 1 }, { unique: true });
         await db.collection(COLLECTIONS.APPLICATIONS).createIndex({ adminId: 1 });
         await db.collection(COLLECTIONS.APPLICATIONS).createIndex({ phoneNumber: 1 });
@@ -59,6 +158,7 @@ async function createIndexes() {
         console.log('✅ Database indexes created');
     } catch (error) {
         console.error('⚠️ Error creating indexes:', error.message);
+        // Don't throw - indexes are not critical for startup
     }
 }
 
@@ -67,8 +167,14 @@ async function createIndexes() {
  */
 async function closeDatabase() {
     if (client) {
-        await client.close();
-        console.log('✅ Database connection closed');
+        try {
+            await client.close();
+            client = null;
+            db = null;
+            console.log('✅ Database connection closed');
+        } catch (error) {
+            console.error('⚠️ Error closing database:', error.message);
+        }
     }
 }
 
@@ -390,6 +496,8 @@ async function cleanupInvalidAdmins() {
 module.exports = {
     connectDatabase,
     closeDatabase,
+    isDatabaseReady,
+    getDatabase,
 
     saveAdmin,
     getAdmin,
