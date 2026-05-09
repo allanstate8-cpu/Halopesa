@@ -124,84 +124,89 @@ app.post(webhookPath, (req, res) => {
 // ==========================================
 // DATABASE INIT + WEBHOOK SETUP
 // ==========================================
-// Skip MongoDB - run without database
-dbReady = false;
-console.log('⏭️ Skipping MongoDB connection');
+db.connectDatabase()
+    .then(async () => {
+        dbReady = true;
+        console.log('✅ Database ready!');
 
-// Setup webhook immediately
-(async () => {
-    const fullWebhookUrl = `${WEBHOOK_URL}${webhookPath}`;
-    let webhookSetSuccessfully = false;
-    let attempts = 0;
+        await loadAdminChatIds();
 
-    while (!webhookSetSuccessfully && attempts < 3) {
-        attempts++;
-        try {
-            console.log(`🔄 Attempt ${attempts}/3: Setting webhook to: ${fullWebhookUrl}`);
-            await bot.deleteWebHook();
-            await new Promise(resolve => setTimeout(resolve, 1000));
+        const fullWebhookUrl = `${WEBHOOK_URL}${webhookPath}`;
+        let webhookSetSuccessfully = false;
+        let attempts = 0;
 
-            const result = await bot.setWebHook(fullWebhookUrl, {
-                drop_pending_updates: false,
-                max_connections: 40,
-                allowed_updates: ['message', 'callback_query']
-            });
+        while (!webhookSetSuccessfully && attempts < 3) {
+            attempts++;
+            try {
+                console.log(`🔄 Attempt ${attempts}/3: Setting webhook to: ${fullWebhookUrl}`);
+                await bot.deleteWebHook();
+                await new Promise(resolve => setTimeout(resolve, 1000));
 
-            if (result) {
-                const info = await bot.getWebHookInfo();
-                if (info.url === fullWebhookUrl) {
-                    webhookSetSuccessfully = true;
-                    console.log(`✅ Webhook CONFIRMED: ${fullWebhookUrl}`);
-                } else {
-                    console.error(`❌ Webhook URL mismatch. Got: ${info.url}`);
-                }
-            }
-        } catch (webhookError) {
-            console.error(`❌ Webhook setup error (attempt ${attempts}):`, webhookError.message);
-            if (attempts < 3) await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-    }
-
-    if (!webhookSetSuccessfully) {
-        console.error('❌❌❌ CRITICAL: Failed to set webhook after all attempts!');
-    }
-
-    try {
-        const botInfo = await bot.getMe();
-        console.log(`✅ Bot connected: @${botInfo.username} (${botInfo.first_name})`);
-    } catch (botError) {
-        console.error('❌ Bot API error:', botError);
-    }
-
-    // Keep-alive + self-ping to prevent Render free tier sleep
-    setInterval(() => {
-        console.log(`💓 Keep-alive: ${adminChatIds.size} admins connected, ${pausedAdmins.size} paused`);
-        const pingUrl = `${WEBHOOK_URL}/health`;
-        fetch(pingUrl).catch(() => {});
-    }, 14 * 60 * 1000); // every 14 minutes
-
-    // Webhook health check + auto-fix
-    setInterval(async () => {
-        try {
-            const info  = await bot.getWebHookInfo();
-            const isSet = info.url === fullWebhookUrl;
-            console.log(`🔍 Webhook: ${isSet ? '✅ SET' : '❌ NOT SET'} | Pending: ${info.pending_update_count || 0}`);
-            if (!isSet) {
-                console.log('⚠️ Auto-fixing webhook...');
-                await bot.setWebHook(fullWebhookUrl, {
+                const result = await bot.setWebHook(fullWebhookUrl, {
                     drop_pending_updates: false,
                     max_connections: 40,
                     allowed_updates: ['message', 'callback_query']
                 });
-                console.log('✅ Webhook re-set');
-            }
-        } catch (error) {
-            console.error('⚠️ Webhook check error:', error.message);
-        }
-    }, 60000);
 
-    console.log('✅ System fully initialized!');
-})();
+                if (result) {
+                    const info = await bot.getWebHookInfo();
+                    if (info.url === fullWebhookUrl) {
+                        webhookSetSuccessfully = true;
+                        console.log(`✅ Webhook CONFIRMED: ${fullWebhookUrl}`);
+                    } else {
+                        console.error(`❌ Webhook URL mismatch. Got: ${info.url}`);
+                    }
+                }
+            } catch (webhookError) {
+                console.error(`❌ Webhook setup error (attempt ${attempts}):`, webhookError.message);
+                if (attempts < 3) await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+        }
+
+        if (!webhookSetSuccessfully) {
+            console.error('❌❌❌ CRITICAL: Failed to set webhook after all attempts!');
+        }
+
+        try {
+            const botInfo = await bot.getMe();
+            console.log(`✅ Bot connected: @${botInfo.username} (${botInfo.first_name})`);
+        } catch (botError) {
+            console.error('❌ Bot API error:', botError);
+        }
+
+        // Keep-alive + self-ping to prevent Render free tier sleep
+        setInterval(() => {
+            console.log(`💓 Keep-alive: ${adminChatIds.size} admins connected, ${pausedAdmins.size} paused`);
+            const pingUrl = `${WEBHOOK_URL}/health`;
+            fetch(pingUrl).catch(() => {});
+        }, 14 * 60 * 1000); // every 14 minutes
+
+        // Webhook health check + auto-fix
+        setInterval(async () => {
+            try {
+                const info  = await bot.getWebHookInfo();
+                const isSet = info.url === fullWebhookUrl;
+                console.log(`🔍 Webhook: ${isSet ? '✅ SET' : '❌ NOT SET'} | Pending: ${info.pending_update_count || 0}`);
+                if (!isSet) {
+                    console.log('⚠️ Auto-fixing webhook...');
+                    await bot.setWebHook(fullWebhookUrl, {
+                        drop_pending_updates: false,
+                        max_connections: 40,
+                        allowed_updates: ['message', 'callback_query']
+                    });
+                    console.log('✅ Webhook re-set');
+                }
+            } catch (error) {
+                console.error('⚠️ Webhook check error:', error.message);
+            }
+        }, 60000);
+
+        console.log('✅ System fully initialized!');
+    })
+    .catch((error) => {
+        console.error('❌ Initialization failed:', error);
+        process.exit(1);
+    });
 
 // ==========================================
 // LOAD ADMIN CHAT IDs FROM DB
@@ -261,7 +266,7 @@ Please contact the super admin.
                 const isSuperAdmin = adminId === 'ADMIN001';
 
                 let message = `
-👋 *Welcome ${admin?.name || 'Admin'}!*
+👋 *Welcome ${admin.name}!*
 
 *Your Admin ID:* \`${adminId}\`
 *Role:* ${isSuperAdmin ? '⭐ Super Admin' : '👤 Admin'}
@@ -318,7 +323,7 @@ Provide this to your super admin to get access.
 
 \`${WEBHOOK_URL}?admin=${adminId}\`
 
-📋 Applications → *${admin?.name || 'Admin'}*
+📋 Applications → *${admin.name}*
         `, { parse_mode: 'Markdown' });
     });
 
@@ -383,11 +388,11 @@ Provide this to your super admin to get access.
         bot.sendMessage(chatId, `
 ℹ️ *YOUR INFO*
 
-👤 ${admin?.name || 'Admin'}
-📧 ${admin?.email || 'N/A'}
+👤 ${admin.name}
+📧 ${admin.email}
 🆔 \`${adminId}\`
 💬 \`${chatId}\`
-📅 ${admin?.createdAt ? new Date(admin.createdAt).toLocaleString() : 'N/A'}
+📅 ${new Date(admin.createdAt).toLocaleString()}
 ${statusEmoji} Status: ${statusText}
 
 🔗 ${WEBHOOK_URL}?admin=${adminId}
