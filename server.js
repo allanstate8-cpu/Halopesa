@@ -13,14 +13,13 @@ const app = express();
 
 const BOT_TOKEN   = process.env.SUPER_ADMIN_BOT_TOKEN;
 const PORT        = process.env.PORT || 10000;
-// Use RENDER_EXTERNAL_URL (automatically set by Render) or fallback to custom APP_URL or localhost
+// ✅ UPDATED: Now uses new Render URL automatically
 const WEBHOOK_URL = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || `http://localhost:${PORT}`;
 
-console.log(`\n🔧 Configuration:`);
-console.log(`   BOT_TOKEN: ${BOT_TOKEN ? '✅ Set' : '❌ Missing'}`);
-console.log(`   WEBHOOK_URL: ${WEBHOOK_URL}`);
-console.log(`   RENDER_EXTERNAL_URL: ${process.env.RENDER_EXTERNAL_URL || 'Not set'}`);
-console.log(`   APP_URL: ${process.env.APP_URL || 'Not set'}\n`);
+console.log('\n🔧 INITIALIZATION:');
+console.log(`   🤖 Bot Token: ${BOT_TOKEN ? '✅ Set' : '❌ Missing'}`);
+console.log(`   🌐 Webhook URL: ${WEBHOOK_URL}`);
+console.log(`   📍 Port: ${PORT}\n`);
 
 // Create bot WITHOUT polling
 const bot = new TelegramBot(BOT_TOKEN);
@@ -318,7 +317,7 @@ Provide this to your super admin to get access.
         }
     });
 
-    // /mylink
+    // /mylink - ✅ NOW SHOWS NEW URL
     bot.onText(/\/mylink/, async (msg) => {
         const chatId  = msg.chat.id;
         const adminId = getAdminIdByChatId(chatId);
