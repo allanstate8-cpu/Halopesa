@@ -23,23 +23,10 @@ async function connectDatabase() {
 
         console.log('🔄 Connecting to MongoDB...');
 
-        client = new MongoClient(MONGODB_URI, {
-            tls: false,  // ← DISABLE TLS (fixes ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR)
-            retryWrites: true,
-            w: 'majority',
-            serverSelectionTimeoutMS: 15000,
-            connectTimeoutMS: 15000,
-            socketTimeoutMS: 45000,
-            maxPoolSize: 10,
-            minPoolSize: 2
-        });
-        
+        client = new MongoClient(MONGODB_URI);
         await client.connect();
 
         db = client.db(DB_NAME);
-
-        // Test the connection with ping
-        await db.admin().ping();
 
         console.log('✅ Connected to MongoDB successfully');
 
